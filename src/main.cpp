@@ -1,25 +1,47 @@
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <string>
+#include <tuple>
+#include <unordered_map>
 #include <vector>
 
+#include "font_data.h"
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
 #include "raylib.h"
 
-const int WIDTH = 700;
-const int HEIGHT = 525;
+#if defined(PLATFORM_DESKTOP)
+#define GLSL_VERSION 330
+#else  // PLATFORM_RPI, PLATFORM_ANDROID, PLATFORM_WEB
+#define GLSL_VERSION 100
+#endif
+
+const int WIDTH = 500;
+const int HEIGHT = 375;
+const std::unordered_map<int, std::tuple<Color, int>> bkgColors = {{0, {LIGHTGRAY, 0x828282FF}},
+                                                                   {1, {DARKGRAY, 0xC8C8C8FF}}};
 
 struct AppState {
+    bool configMode{false};
     bool hFramesEditMode{false};
     int hFramesValue{1};
+    int tempHFramesValue{1};
     bool vFramesEditMode{false};
     int vFramesValue{1};
-    bool PlayAnimChecked{false};
-    bool RotationChecked{false};
+    int tempVFramesValue{1};
+    bool frameEditMode{false};
+    int framesValue{0};
+    bool playAnimChecked{false};
+    bool rotationChecked{true};
+    int bkgColorId{0};
+    Color backgroundColor = LIGHTGRAY;
+    int textColor{static_cast<int>(0x828282FF)};
+    bool frameSpeedEditMode{false};
+    float frameSpeedValue{1.0f};
 };
 
-struct SpriteData {
+struct Sprite {
     std::string path;
     long modTime;
     Texture2D tex;
@@ -27,9 +49,10 @@ struct SpriteData {
     float rotation{0};
     Rectangle texRec;
     std::vector<Rectangle> drawRecs;
+    int currentFrame{0};
 };
 
-SpriteData CreateSprite() {
+Sprite CreateSprite() {
     Texture2D tex;
     std::string path = "";
     long modTime;
@@ -51,10 +74,10 @@ SpriteData CreateSprite() {
 
     UnloadDroppedFiles(droppedFile);
 
-    return SpriteData{path, modTime, tex};
+    return Sprite{path, modTime, tex};
 }
 
-void UpdateModifiedSprite(SpriteData &sprite) {
+void UpdateModifiedSprite(Sprite &sprite) {
     Image tempImg = LoadImage(sprite.path.c_str());
     ImageFlipVertical(&tempImg);
 
@@ -64,11 +87,11 @@ void UpdateModifiedSprite(SpriteData &sprite) {
     }
 }
 
-void UpdateSpriteFrames(SpriteData &sprite, uint32_t hFrames, uint32_t vFrames, float scale) {
+void UpdateSpriteFrames(Sprite &sprite, uint32_t hFrames, uint32_t vFrames, float scale) {
     uint32_t frameWidth = sprite.tex.width / hFrames;
     uint32_t frameHeight = sprite.tex.height / vFrames;
 
-    if (sprite.drawRecs.size() > 0) sprite.drawRecs.clear();
+    if (!sprite.drawRecs.empty()) sprite.drawRecs.clear();
 
     for (auto i = 0; i < hFrames; i++) {
         Rectangle rec = {WIDTH / 2.0f, ((HEIGHT / 2.0f) + hFrames * 4) - (i * 8),
@@ -77,63 +100,129 @@ void UpdateSpriteFrames(SpriteData &sprite, uint32_t hFrames, uint32_t vFrames, 
     }
 
     sprite.texRec = {0.0f, 0.0f, (float)frameWidth, (float)frameHeight};
-    sprite.origin = {(float)(frameWidth * scale) / 2.0f, (float)(frameHeight * scale) / 2.0f};
+    sprite.origin = {(frameWidth * scale) / 2.0f, (frameHeight * scale) / 2.0f};
+}
+
+void ChangeBkgColor(AppState &state) {
+    size_t colors = bkgColors.size();
+    int nextColor = state.bkgColorId + 1 >= colors ? 0 : state.bkgColorId + 1;
+    state.bkgColorId = nextColor;
+
+    Color bkgColor = std::get<0>(bkgColors.at(nextColor));
+    int textColor = std::get<1>(bkgColors.at(nextColor));
+
+    state.backgroundColor = bkgColor;
+    state.textColor = textColor;
+    GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, state.textColor);
+}
+
+void DrawConfigMode(AppState &state) {
+    if (GuiSpinner(Rectangle{390, 10, 100, 24}, "H-Frames ", &state.tempHFramesValue, 1, 100,
+                   state.hFramesEditMode)) {
+        state.hFramesEditMode = !state.hFramesEditMode;
+    }
+    if (GuiSpinner(Rectangle{390, 40, 100, 24}, "V-Frames ", &state.tempVFramesValue, 1, 100,
+                   state.vFramesEditMode)) {
+        state.vFramesEditMode = !state.vFramesEditMode;
+    }
+    if (GuiButton(Rectangle{390, 70, 100, 24}, "Confirm")) state.configMode = false;
+
+    state.hFramesValue = state.tempHFramesValue <= 0 ? 1 : state.tempHFramesValue;
+    state.vFramesValue = state.tempVFramesValue <= 0 ? 1 : state.tempVFramesValue;
+}
+
+void DrawPreviewMode(AppState &state, Sprite &sprite) {
+    if (GuiSpinner(Rectangle{390, 10, 100, 24}, "Frame ", &sprite.currentFrame, 0,
+                   state.vFramesValue - 1, state.frameEditMode)) {
+        state.frameEditMode = !state.frameEditMode;
+    }
+    if (GuiSpinnerF(Rectangle{390, 40, 100, 24}, "Frame Dur. (s) ", &state.frameSpeedValue, 0.1f,
+                    1.0f, 0.1f, state.frameSpeedEditMode)) {
+        state.frameEditMode = !state.frameEditMode;
+    }
+    GuiCheckBox(Rectangle{390, 70, 24, 24}, " Rotate", &state.rotationChecked);
+    // TODO: Changing the background's color makes everything else hard to read or see.
+    if (GuiButton(Rectangle{390, 100, 100, 24}, "#29#Bkg")) ChangeBkgColor(state);
+    if (!state.playAnimChecked) {
+        if (GuiButton(Rectangle{390, 130, 100, 24}, "#150#Play")) state.playAnimChecked = true;
+    } else {
+        if (GuiButton(Rectangle{390, 130, 100, 24}, "#149#Stop")) state.playAnimChecked = false;
+    }
 }
 
 int main() {
-    uint32_t currentFrame = 0;
+    bool spriteLoaded = false;
+    size_t frameCount{0};
     AppState state;
-    SpriteData mainSprite;
+    Sprite mainSprite;
 
     InitWindow(WIDTH, HEIGHT, "StackAnim");
     SetTargetFPS(60);
     SetWindowState(FLAG_WINDOW_TOPMOST);
 
+    Font ubuFont = LoadFontFromMemory(".ttf", ___assets_Ubuntu_Regular_ttf,
+                                      ___assets_Ubuntu_Regular_ttf_len, 17, nullptr, 0);
+    GuiSetFont(ubuFont);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 17);
+    GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, state.textColor);
+    GuiSetStyle(DEFAULT, BASE_COLOR_NORMAL, 0x444444FF);
+
     while (!WindowShouldClose()) {
         // File
         if (IsFileDropped()) {
             mainSprite = CreateSprite();
-            UpdateSpriteFrames(mainSprite, state.hFramesValue, state.vFramesValue, 8.0f);
+            if (mainSprite.tex.id != 0) spriteLoaded = true;
+            UpdateSpriteFrames(mainSprite, state.hFramesValue, state.vFramesValue, 1.0f);
+            state.configMode = true;
         }
 
         // Check if sprite has been modified
         if (mainSprite.modTime != GetFileModTime(mainSprite.path.c_str())) {
-            std::cout << "sprite modified!" << std::endl;
             UpdateModifiedSprite(mainSprite);
             mainSprite.modTime = GetFileModTime(mainSprite.path.c_str());
         }
 
         // Rotation
-        if (state.RotationChecked) mainSprite.rotation += GetFrameTime() * 20;
+        if (state.rotationChecked) mainSprite.rotation += GetFrameTime() * 20;
+
+        // Anim
+        frameCount++;
+        if (frameCount / (60 * state.frameSpeedValue) >= 1.0f && state.playAnimChecked) {
+            if (mainSprite.currentFrame < state.vFramesValue - 1)
+                ++mainSprite.currentFrame;
+            else
+                mainSprite.currentFrame = 0;
+
+            frameCount = 0;
+        }
 
         // Drawing
         BeginDrawing();
-        ClearBackground(LIGHTGRAY);
+        ClearBackground(state.backgroundColor);
 
-        if (mainSprite.drawRecs.size() == 0) {
-            DrawText("Drag sprite to the window", (WIDTH / 2.0f) - 135, (HEIGHT / 2.0f) - 20, 20,
-                     GRAY);
+        if (!spriteLoaded) {
+            GuiLabel(Rectangle{(WIDTH / 2.0f) - 100, (HEIGHT / 2.0f) - 20, 200, 20},
+                     "Drag sprite to the window");
         }
 
         // Small texture preview
-        DrawTexture(mainSprite.tex, 15, 15, WHITE);
+        // DrawTexture(mainSprite.tex, 15, 15, WHITE);
 
         // Stacked drawing
         for (auto i = 0; i < mainSprite.drawRecs.size(); i++) {
             mainSprite.texRec.x = (float)i * (float)mainSprite.tex.width / state.hFramesValue;
-            mainSprite.texRec.y = currentFrame * (float)mainSprite.tex.height / state.vFramesValue;
+            mainSprite.texRec.y =
+                mainSprite.currentFrame * (float)mainSprite.tex.height / state.vFramesValue;
             DrawTexturePro(mainSprite.tex, mainSprite.texRec, mainSprite.drawRecs[i],
                            mainSprite.origin, mainSprite.rotation, WHITE);
         }
 
         // GUI
-        if (GuiSpinner(Rectangle{580, 16, 100, 24}, "H-Frames ", &state.hFramesValue, 1, 100,
-                       state.hFramesEditMode)) {
-            std::cout << state.hFramesValue << std::endl;
-            state.hFramesEditMode = !state.hFramesEditMode;
+        if (state.configMode) {
+            DrawConfigMode(state);
+        } else {
+            DrawPreviewMode(state, mainSprite);
         }
-
-        GuiCheckBox(Rectangle{580, 144, 24, 24}, " Rotate", &state.RotationChecked);
 
         UpdateSpriteFrames(mainSprite, state.hFramesValue, state.vFramesValue, 8.0f);
 

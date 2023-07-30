@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 if(CMAKE_BUILD_TYPE MATCHES Debug)
     message(STATUS "Debug build")
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
     #set(CMAKE_EXE_LINKER_FLAGS "-static")
 elseif(CMAKE_BUILD_TYPE MATCHES Release)
     message(STATUS "Release build")
