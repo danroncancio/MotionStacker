@@ -1,0 +1,18 @@
+const char *pixelizer_frag =
+    "#version 330\n"
+    "in vec2 fragTexCoord;\n"
+    "in vec4 fragColor;\n"
+    "uniform sampler2D texture0;\n"
+    "uniform vec4 colDiffuse;\n"
+    "out vec4 finalColor;\n"
+    "const float renderWidth = 500;\n"
+    "const float renderHeight = 375;\n"
+    "uniform float pixelWidth = 15.0;\n"
+    "uniform float pixelHeight = 15.0;\n"
+    "void main() {\n"
+    "    float dx = pixelWidth * (1.0 / renderWidth);\n"
+    "    float dy = pixelHeight * (1.0 / renderHeight);\n"
+    "    vec2 coord = vec2(dx * floor(fragTexCoord.x / dx), dy * floor(fragTexCoord.y / dy));\n"
+    "    vec3 tc = texture(texture0, coord).rgb;\n"
+    "    finalColor = vec4(tc, 1.0);\n"
+    "}\n";

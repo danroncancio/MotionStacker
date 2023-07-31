@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "font_data.h"
+#include "pixel_shader.h"
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
 #include "raylib.h"
@@ -34,6 +35,7 @@ struct AppState {
     int framesValue{0};
     bool playAnimChecked{false};
     bool rotationChecked{true};
+    bool pixelizerChecked{false};
     int bkgColorId{0};
     Color backgroundColor = LIGHTGRAY;
     int textColor{static_cast<int>(0x828282FF)};
@@ -141,12 +143,13 @@ void DrawPreviewMode(AppState &state, Sprite &sprite) {
         state.frameEditMode = !state.frameEditMode;
     }
     GuiCheckBox(Rectangle{390, 70, 24, 24}, " Rotate", &state.rotationChecked);
+    GuiCheckBox(Rectangle{390, 100, 24, 24}, " Pixelizer", &state.pixelizerChecked);
     // TODO: Changing the background's color makes everything else hard to read or see.
-    if (GuiButton(Rectangle{390, 100, 100, 24}, "#29#Bkg")) ChangeBkgColor(state);
+    if (GuiButton(Rectangle{390, 130, 100, 24}, "#29#Bkg")) ChangeBkgColor(state);
     if (!state.playAnimChecked) {
-        if (GuiButton(Rectangle{390, 130, 100, 24}, "#150#Play")) state.playAnimChecked = true;
+        if (GuiButton(Rectangle{390, 160, 100, 24}, "#150#Play")) state.playAnimChecked = true;
     } else {
-        if (GuiButton(Rectangle{390, 130, 100, 24}, "#149#Stop")) state.playAnimChecked = false;
+        if (GuiButton(Rectangle{390, 160, 100, 24}, "#149#Stop")) state.playAnimChecked = false;
     }
 }
 
@@ -160,12 +163,21 @@ int main() {
     SetTargetFPS(60);
     SetWindowState(FLAG_WINDOW_TOPMOST);
 
+    RenderTexture2D target = LoadRenderTexture(WIDTH, HEIGHT);
+
+    Shader pixelShader = LoadShaderFromMemory(nullptr, pixelizer_frag);
+
     Font ubuFont = LoadFontFromMemory(".ttf", ___assets_Ubuntu_Regular_ttf,
                                       ___assets_Ubuntu_Regular_ttf_len, 17, nullptr, 0);
     GuiSetFont(ubuFont);
     GuiSetStyle(DEFAULT, TEXT_SIZE, 17);
     GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, state.textColor);
     GuiSetStyle(DEFAULT, BASE_COLOR_NORMAL, 0x444444FF);
+
+    Camera2D camera = {0};
+    camera.target = Vector2{WIDTH / 2.0f, HEIGHT / 2.0f};
+    camera.offset = Vector2{WIDTH / 2.0f, HEIGHT / 2.0f};
+    camera.zoom = 1.0f;
 
     while (!WindowShouldClose()) {
         // File
@@ -197,17 +209,8 @@ int main() {
         }
 
         // Drawing
-        BeginDrawing();
+        BeginTextureMode(target);
         ClearBackground(state.backgroundColor);
-
-        if (!spriteLoaded) {
-            GuiLabel(Rectangle{(WIDTH / 2.0f) - 100, (HEIGHT / 2.0f) - 20, 200, 20},
-                     "Drag sprite to the window");
-        }
-
-        // Small texture preview
-        // DrawTexture(mainSprite.tex, 15, 15, WHITE);
-
         // Stacked drawing
         for (auto i = 0; i < mainSprite.drawRecs.size(); i++) {
             mainSprite.texRec.x = (float)i * (float)mainSprite.tex.width / state.hFramesValue;
@@ -216,8 +219,34 @@ int main() {
             DrawTexturePro(mainSprite.tex, mainSprite.texRec, mainSprite.drawRecs[i],
                            mainSprite.origin, mainSprite.rotation, WHITE);
         }
+        EndTextureMode();
+
+        BeginDrawing();
+        ClearBackground(state.backgroundColor);
+
+        // Small texture preview
+        // DrawTexture(mainSprite.tex, 15, 15, WHITE);
+
+        if (state.pixelizerChecked) {
+            BeginShaderMode(pixelShader);
+            DrawTextureRec(
+                target.texture,
+                Rectangle{0, 0, (float)target.texture.width, (float)-target.texture.height},
+                Vector2{0, 0}, WHITE);
+            EndShaderMode();
+        } else {
+            DrawTextureRec(
+                target.texture,
+                Rectangle{0, 0, (float)target.texture.width, (float)-target.texture.height},
+                Vector2{0, 0}, WHITE);
+        }
 
         // GUI
+        if (!spriteLoaded) {
+            GuiLabel(Rectangle{(WIDTH / 2.0f) - 100, (HEIGHT / 2.0f) - 20, 200, 20},
+                     "Drag sprite to the window");
+        }
+
         if (state.configMode) {
             DrawConfigMode(state);
         } else {
@@ -230,6 +259,8 @@ int main() {
     }
 
     UnloadTexture(mainSprite.tex);
+    UnloadShader(pixelShader);
+    UnloadRenderTexture(target);
 
     CloseWindow();
 
