@@ -12,12 +12,6 @@
 #include "raygui.h"
 #include "raylib.h"
 
-#if defined(PLATFORM_DESKTOP)
-#define GLSL_VERSION 330
-#else  // PLATFORM_RPI, PLATFORM_ANDROID, PLATFORM_WEB
-#define GLSL_VERSION 100
-#endif
-
 const int WIDTH = 500;
 const int HEIGHT = 375;
 const std::unordered_map<int, std::tuple<Color, int>> bkgColors = {{0, {LIGHTGRAY, 0x828282FF}},
@@ -41,6 +35,9 @@ struct AppState {
     int textColor{static_cast<int>(0x828282FF)};
     bool frameSpeedEditMode{false};
     float frameSpeedValue{1.0f};
+    bool frameSpeedValueMode{false};
+    Vector2 frameSize{1, 1};
+    bool uiVisibilityChecked{true};
 };
 
 struct Sprite {
@@ -96,8 +93,8 @@ void UpdateSpriteFrames(Sprite &sprite, uint32_t hFrames, uint32_t vFrames, floa
     if (!sprite.drawRecs.empty()) sprite.drawRecs.clear();
 
     for (auto i = 0; i < hFrames; i++) {
-        Rectangle rec = {WIDTH / 2.0f, ((HEIGHT / 2.0f) + hFrames * 4) - (i * 8),
-                         (float)frameWidth * scale, (float)frameHeight * scale};
+        Rectangle rec = {WIDTH / 2.0f, ((HEIGHT / 2.0f) + hFrames * 4) - (i * 8), (float)frameWidth * scale,
+                         (float)frameHeight * scale};
         sprite.drawRecs.push_back(rec);
     }
 
@@ -129,28 +126,40 @@ void DrawConfigMode(AppState &state) {
     }
     if (GuiButton(Rectangle{390, 70, 100, 24}, "Confirm")) state.configMode = false;
 
+    // Sprite frame size
+    auto size = std::to_string((int)state.frameSize.x) + "x" + std::to_string((int)state.frameSize.y);
+    GuiLabel(Rectangle{430, 342, 72, 24}, size.c_str());
+
     state.hFramesValue = state.tempHFramesValue <= 0 ? 1 : state.tempHFramesValue;
     state.vFramesValue = state.tempVFramesValue <= 0 ? 1 : state.tempVFramesValue;
 }
 
 void DrawPreviewMode(AppState &state, Sprite &sprite) {
-    if (GuiSpinner(Rectangle{390, 10, 100, 24}, "Frame ", &sprite.currentFrame, 0,
-                   state.vFramesValue - 1, state.frameEditMode)) {
+    if (GuiSpinner(Rectangle{390, 10, 100, 24}, "Frame ", &sprite.currentFrame, 0, state.vFramesValue - 1,
+                   state.frameEditMode)) {
         state.frameEditMode = !state.frameEditMode;
     }
-    if (GuiSpinnerF(Rectangle{390, 40, 100, 24}, "Frame Dur. (s) ", &state.frameSpeedValue, 0.1f,
-                    1.0f, 0.1f, state.frameSpeedEditMode)) {
-        state.frameEditMode = !state.frameEditMode;
+    // TODO: Changing the value directly dosen't work for the custom float spinner
+    if (GuiSpinnerF(Rectangle{390, 40, 100, 24}, "Frame Dur. (s) ", &state.frameSpeedValue, 0.1f, 1.0f, 0.1f,
+                    state.frameSpeedEditMode)) {
+        state.frameSpeedEditMode = !state.frameSpeedEditMode;
     }
+
     GuiCheckBox(Rectangle{390, 70, 24, 24}, " Rotate", &state.rotationChecked);
+
     GuiCheckBox(Rectangle{390, 100, 24, 24}, " Pixelizer", &state.pixelizerChecked);
     // TODO: Changing the background's color makes everything else hard to read or see.
     if (GuiButton(Rectangle{390, 130, 100, 24}, "#29#Bkg")) ChangeBkgColor(state);
+
     if (!state.playAnimChecked) {
         if (GuiButton(Rectangle{390, 160, 100, 24}, "#150#Play")) state.playAnimChecked = true;
     } else {
         if (GuiButton(Rectangle{390, 160, 100, 24}, "#149#Stop")) state.playAnimChecked = false;
     }
+
+    if (GuiButton(Rectangle{466, 312, 24, 24}, "#44#")) state.uiVisibilityChecked = false;
+
+    if (GuiButton(Rectangle{466, 342, 24, 24}, "#142#")) state.configMode = true;
 }
 
 int main() {
@@ -159,7 +168,7 @@ int main() {
     AppState state;
     Sprite mainSprite;
 
-    InitWindow(WIDTH, HEIGHT, "StackAnim");
+    InitWindow(WIDTH, HEIGHT, "MotionStaker");
     SetTargetFPS(60);
     SetWindowState(FLAG_WINDOW_TOPMOST);
 
@@ -167,32 +176,41 @@ int main() {
 
     Shader pixelShader = LoadShaderFromMemory(nullptr, pixelizer_frag);
 
-    Font ubuFont = LoadFontFromMemory(".ttf", ___assets_Ubuntu_Regular_ttf,
-                                      ___assets_Ubuntu_Regular_ttf_len, 17, nullptr, 0);
+    Font ubuFont = LoadFontFromMemory(".ttf", ___assets_Ubuntu_Regular_ttf, ___assets_Ubuntu_Regular_ttf_len,
+                                      17, nullptr, 0);
     GuiSetFont(ubuFont);
     GuiSetStyle(DEFAULT, TEXT_SIZE, 17);
     GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, state.textColor);
     GuiSetStyle(DEFAULT, BASE_COLOR_NORMAL, 0x444444FF);
 
-    Camera2D camera = {0};
-    camera.target = Vector2{WIDTH / 2.0f, HEIGHT / 2.0f};
-    camera.offset = Vector2{WIDTH / 2.0f, HEIGHT / 2.0f};
-    camera.zoom = 1.0f;
-
     while (!WindowShouldClose()) {
         // File
         if (IsFileDropped()) {
+            state.configMode = true;
+            state.playAnimChecked = false;
+            state.pixelizerChecked = false;
+            state.tempHFramesValue = 1;
+            state.tempVFramesValue = 1;
+            state.uiVisibilityChecked = true;
+
             mainSprite = CreateSprite();
             if (mainSprite.tex.id != 0) spriteLoaded = true;
             UpdateSpriteFrames(mainSprite, state.hFramesValue, state.vFramesValue, 1.0f);
-            state.configMode = true;
         }
+
+        // Show UI when it is hidden
+        if (IsMouseButtonDown(MOUSE_LEFT_BUTTON) && !state.uiVisibilityChecked)
+            state.uiVisibilityChecked = true;
 
         // Check if sprite has been modified
         if (mainSprite.modTime != GetFileModTime(mainSprite.path.c_str())) {
             UpdateModifiedSprite(mainSprite);
             mainSprite.modTime = GetFileModTime(mainSprite.path.c_str());
         }
+
+        // Update sprite frame size
+        state.frameSize.x = mainSprite.texRec.width;
+        state.frameSize.y = mainSprite.texRec.height;
 
         // Rotation
         if (state.rotationChecked) mainSprite.rotation += GetFrameTime() * 20;
@@ -214,10 +232,9 @@ int main() {
         // Stacked drawing
         for (auto i = 0; i < mainSprite.drawRecs.size(); i++) {
             mainSprite.texRec.x = (float)i * (float)mainSprite.tex.width / state.hFramesValue;
-            mainSprite.texRec.y =
-                mainSprite.currentFrame * (float)mainSprite.tex.height / state.vFramesValue;
-            DrawTexturePro(mainSprite.tex, mainSprite.texRec, mainSprite.drawRecs[i],
-                           mainSprite.origin, mainSprite.rotation, WHITE);
+            mainSprite.texRec.y = mainSprite.currentFrame * (float)mainSprite.tex.height / state.vFramesValue;
+            DrawTexturePro(mainSprite.tex, mainSprite.texRec, mainSprite.drawRecs[i], mainSprite.origin,
+                           mainSprite.rotation, WHITE);
         }
         EndTextureMode();
 
@@ -229,16 +246,14 @@ int main() {
 
         if (state.pixelizerChecked) {
             BeginShaderMode(pixelShader);
-            DrawTextureRec(
-                target.texture,
-                Rectangle{0, 0, (float)target.texture.width, (float)-target.texture.height},
-                Vector2{0, 0}, WHITE);
+            DrawTextureRec(target.texture,
+                           Rectangle{0, 0, (float)target.texture.width, (float)-target.texture.height},
+                           Vector2{0, 0}, WHITE);
             EndShaderMode();
         } else {
-            DrawTextureRec(
-                target.texture,
-                Rectangle{0, 0, (float)target.texture.width, (float)-target.texture.height},
-                Vector2{0, 0}, WHITE);
+            DrawTextureRec(target.texture,
+                           Rectangle{0, 0, (float)target.texture.width, (float)-target.texture.height},
+                           Vector2{0, 0}, WHITE);
         }
 
         // GUI
@@ -247,10 +262,12 @@ int main() {
                      "Drag sprite to the window");
         }
 
-        if (state.configMode) {
-            DrawConfigMode(state);
-        } else {
-            DrawPreviewMode(state, mainSprite);
+        if (state.uiVisibilityChecked) {
+            if (state.configMode) {
+                DrawConfigMode(state);
+            } else {
+                DrawPreviewMode(state, mainSprite);
+            }
         }
 
         UpdateSpriteFrames(mainSprite, state.hFramesValue, state.vFramesValue, 8.0f);

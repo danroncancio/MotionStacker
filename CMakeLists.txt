@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(StackAnim)
+project(MotionStaker)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -15,18 +15,18 @@ endif()
 
 add_subdirectory(libs/raylib)
 
-add_executable(StackAnim src/main.cpp)
+add_executable(MotionStaker src/main.cpp)
 
-target_include_directories(StackAnim PUBLIC libs/raylib/src)
-target_include_directories(StackAnim PUBLIC libs/raygui/src)
+target_include_directories(MotionStaker PUBLIC libs/raylib/src)
+target_include_directories(MotionStaker PUBLIC libs/raygui/src)
 
 if (UNIX)
     message(STATUS "Linux platform")
-    target_link_libraries(StackAnim PUBLIC raylib)
+    target_link_libraries(MotionStaker PUBLIC raylib)
 endif (UNIX)
 
 if (WIN32)
     message(STATUS "Windows platform")
-    target_link_libraries(StackAnim PUBLIC raylib)
-    target_link_libraries(StackAnim PUBLIC gdi32 opengl32 imm32)
+    target_link_libraries(MotionStaker PUBLIC raylib)
+    target_link_libraries(MotionStaker PUBLIC gdi32 opengl32 imm32)
 endif(WIN32)
